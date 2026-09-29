@@ -19,15 +19,15 @@ VkResult RPIFUNC(vkCreateShaderModule)(VkDevice device, const VkShaderModuleCrea
 {
 	PROFILESTART(RPIFUNC(vkCreateShaderModule));
 
-	uint32_t magic = pCreateInfo->pCode[2];
-	VkRpiShaderModuleAssemblyCreateInfoEXT* ci = pCreateInfo->pCode[4];
 
-	//shader magic doesn't add up
-	if(magic != 0x14E45250)
-	{
-		PROFILEEND(RPIFUNC(vkCreateShaderModule));
-		return VK_ERROR_OUT_OF_HOST_MEMORY;
-	}
+    if (!pCreateInfo || !pShaderModule) return VK_ERROR_INITIALIZATION_FAILED;
+    *pShaderModule = VK_NULL_HANDLE;
+    const VkRpiShaderModuleAssemblyCreateInfoEXT *ci =
+        vkRpiDecodeAssemblyEXT(pCreateInfo->pCode, pCreateInfo->codeSize);
+    if (!ci) {
+        PROFILEEND(RPIFUNC(vkCreateShaderModule));
+        return VK_ERROR_INVALID_SHADER_NV;
+    }
 
 	assert(ci);
 	assert(pShaderModule);

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <stdint.h>
+#include <stddef.h>
+
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 
@@ -71,6 +74,38 @@ typedef struct VkRpiShaderModuleAssemblyCreateInfoEXT {
 	VkRpiAssemblyMappingEXT**	  mappings;
 	uint32_t*					  numMappings;
 } VkRpiShaderModuleAssemblyCreateInfoEXT;
+
+/* Private assembly transport, not standard SPIR-V. Keep the historical
+ * six-word layout on 32-bit; use the last word for pointer high bits on 64-bit.
+ * All AArch64 clients must rebuild using this helper. */
+static inline void vkRpiEncodeAssemblyEXT(uint32_t code[6],
+                                        const VkRpiShaderModuleAssemblyCreateInfoEXT *info)
+{
+    uintptr_t address = (uintptr_t)info;
+    code[0] = 0x07230203;
+    code[1] = 0x00010000;
+    code[2] = 0x14E45250;
+    code[3] = 1;
+    code[4] = (uint32_t)address;
+#if UINTPTR_MAX > UINT32_MAX
+    code[5] = (uint32_t)(address >> 32);
+#else
+    code[5] = 1u << 16;
+#endif
+}
+
+static inline const VkRpiShaderModuleAssemblyCreateInfoEXT *
+vkRpiDecodeAssemblyEXT(const uint32_t *code, size_t size)
+{
+    if (!code || size != 6 * sizeof(uint32_t) || code[0] != 0x07230203 ||
+        code[1] != 0x00010000 || code[2] != 0x14E45250 || code[3] != 1)
+        return NULL;
+    uintptr_t address = code[4];
+#if UINTPTR_MAX > UINT32_MAX
+    address |= (uintptr_t)code[5] << 32;
+#endif
+    return (const VkRpiShaderModuleAssemblyCreateInfoEXT *)address;
+}
 
 #ifdef __cplusplus
 }

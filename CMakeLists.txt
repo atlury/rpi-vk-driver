@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.10.2)
+cmake_minimum_required (VERSION 3.18...3.31)
 
 cmake_policy(SET CMP0048 NEW)
 
@@ -21,6 +21,7 @@ project (rpi-vulkan-driver
 
 include(options)
 include(sysroot)
+option(USE_SYSTEM_VULKAN "Use installed Vulkan headers and loader" OFF)
 include(global)
 include(vulkan)
 
@@ -48,3 +49,9 @@ add_custom_target(clean-vulkan
     "${CMAKE_COMMAND}" -E remove_directory "${CMAKE_BINARY_DIR}/vulkan-headers-prefix"
     "${CMAKE_COMMAND}" -E remove_directory "${CMAKE_BINARY_DIR}/vulkan-loader-prefix"
 )
+
+option(BUILD_CPU_TESTS "Build hardware-independent allocator and assembly transport tests" ON)
+if(BUILD_CPU_TESTS)
+    enable_testing()
+    add_subdirectory(test/cpu)
+endif()

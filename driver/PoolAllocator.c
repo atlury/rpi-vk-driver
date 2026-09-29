@@ -3,9 +3,12 @@
 #include "CustomAssert.h"
 
 #include <stdint.h>
+#include "PoolLink.h"
 
 PoolAllocator createPoolAllocator(void* b, unsigned bs, unsigned s)
 {
+	if (!b || bs < sizeof(void *) || s < bs || s % bs)
+		return (PoolAllocator){0};
 	assert(b); //only allocated memory
 	assert(bs >= sizeof(void*)); //we need to be able to store
 	assert(s%bs==0); //we want a size that is the exact multiple of block size
@@ -19,16 +22,11 @@ PoolAllocator createPoolAllocator(void* b, unsigned bs, unsigned s)
 		.size = s
 	};
 
-	//initialize linked list of free pointers
-	uint32_t* ptr = pa.nextFreeBlock;
-	unsigned last = s/bs - 1;
-	for(unsigned c = 0; c < last; ++c)
+	for(unsigned offset = 0; offset < s; offset += bs)
 	{
-		*ptr = (char*)ptr + bs;
-		ptr = (char*)ptr + bs;
+		void *next = offset + bs < s ? (char *)b + offset + bs : NULL;
+		poolSetNext((char *)b + offset, next);
 	}
-
-	*ptr = 0; //last element
 
 	return pa;
 }
@@ -55,7 +53,7 @@ void* poolAllocate(PoolAllocator* pa)
 	void* ret = pa->nextFreeBlock;
 
 	//set next free block to the one the current next points to
-	pa->nextFreeBlock = *(uint32_t*)pa->nextFreeBlock;
+	pa->nextFreeBlock = poolNext(pa->nextFreeBlock);
 
 	return ret;
 }
@@ -66,7 +64,7 @@ void poolFree(PoolAllocator* pa, void* p)
 	assert(p);
 
 	//set block to be freed to point to the current next free block
-	*(uint32_t*)p = (uint32_t)pa->nextFreeBlock;
+	poolSetNext(p, pa->nextFreeBlock);
 
 	//set next free block to the freshly freed block
 	pa->nextFreeBlock = p;

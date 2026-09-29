@@ -632,13 +632,7 @@ void createBufferToTextureShaderModule(VkDevice device, VkShaderModule* blitShad
 		assemble_qpu_asm(blit_fs_asm_code, asm_ptrs[2]);
 	}
 
-	spirv[0] = 0x07230203;
-	spirv[1] = 0x00010000;
-	spirv[2] = 0x14E45250;
-	spirv[3] = 1;
-	spirv[4] = (uint32_t)&shaderModuleCreateInfo;
-	//words start here
-	spirv[5] = 1 << 16;
+	vkRpiEncodeAssemblyEXT(spirv, &shaderModuleCreateInfo);
 
 	VkShaderModuleCreateInfo smci = {0};
 	smci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -929,13 +923,7 @@ void createTextureToTextureShaderModule(VkDevice device, VkShaderModule* blitSha
 		assemble_qpu_asm(sample_fs_asm_code, asm_ptrs[2]);
 	}
 
-	spirv[0] = 0x07230203;
-	spirv[1] = 0x00010000;
-	spirv[2] = 0x14E45250;
-	spirv[3] = 1;
-	spirv[4] = (uint32_t)&shaderModuleCreateInfo;
-	//words start here
-	spirv[5] = 1 << 16;
+	vkRpiEncodeAssemblyEXT(spirv, &shaderModuleCreateInfo);
 
 	VkShaderModuleCreateInfo smci = {0};
 	smci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -1315,7 +1303,23 @@ VKAPI_ATTR void VKAPI_CALL RPIFUNC(vkCmdCopyImage)(
 	const VkImageCopy*                          pRegions)
 {
 	PROFILESTART(RPIFUNC(vkCmdCopyImage));
-	RPIFUNC(vkCmdBlitImage)(commandBuffer, srcImage, srcImageLayout, dstImage, dstImageLayout, regionCount, pRegions, VK_FILTER_NEAREST);
+	for (uint32_t i = 0; i < regionCount; ++i) {
+        const VkImageCopy *copy = &pRegions[i];
+        VkImageBlit blit = {
+            .srcSubresource = copy->srcSubresource,
+            .srcOffsets = {copy->srcOffset, {
+                copy->srcOffset.x + (int32_t)copy->extent.width,
+                copy->srcOffset.y + (int32_t)copy->extent.height,
+                copy->srcOffset.z + (int32_t)copy->extent.depth}},
+            .dstSubresource = copy->dstSubresource,
+            .dstOffsets = {copy->dstOffset, {
+                copy->dstOffset.x + (int32_t)copy->extent.width,
+                copy->dstOffset.y + (int32_t)copy->extent.height,
+                copy->dstOffset.z + (int32_t)copy->extent.depth}}
+        };
+        RPIFUNC(vkCmdBlitImage)(commandBuffer, srcImage, srcImageLayout,
+                              dstImage, dstImageLayout, 1, &blit, VK_FILTER_NEAREST);
+    }
 	PROFILEEND(RPIFUNC(vkCmdCopyImage));
 }
 

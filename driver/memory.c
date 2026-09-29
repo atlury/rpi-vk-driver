@@ -210,7 +210,7 @@ VKAPI_ATTR void VKAPI_CALL RPIFUNC(vkGetPhysicalDeviceMemoryProperties2)(
 	VkPhysicalDeviceMemoryProperties2*          pMemoryProperties)
 {
 	assert(physicalDevice);
-	RPIFUNC(vkGetPhysicalDeviceMemoryProperties)(physicalDevice, pMemoryProperties);
+	RPIFUNC(vkGetPhysicalDeviceMemoryProperties)(physicalDevice, &pMemoryProperties->memoryProperties);
 }
 
 VKAPI_ATTR void VKAPI_CALL RPIFUNC(vkGetDeviceMemoryCommitment)(

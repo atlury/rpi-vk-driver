@@ -1,42 +1,46 @@
 #define _GNU_SOURCE
 #include "kernelInterface.h"
-#include <stdatomic.h>
+#include <pthread.h>
 
-static atomic_int refCounter = 0;
-int controlFd = 0;
-//int renderFd = 0;
+static pthread_mutex_t controlMutex = PTHREAD_MUTEX_INITIALIZER;
+static unsigned refCounter;
+int controlFd = -1;
 
-int openIoctl()
+int openIoctl(void)
 {
-	if(!controlFd)
-	{
-		controlFd = open(DRM_IOCTL_CTRL_DEV_FILE_NAME, O_RDWR | O_CLOEXEC);
-		if (controlFd < 0) {
-			fprintf(stderr, "Can't open device file: %s \nError: %s\n", DRM_IOCTL_CTRL_DEV_FILE_NAME, strerror(errno));
-			return -1;
-		}
-	}
-
-	/*if(!renderFd)
-	{
-		renderFd = open(DRM_IOCTL_RENDER_DEV_FILE_NAME, O_RDWR | O_CLOEXEC);
-		if (renderFd < 0) {
-			printf("Can't open device file: %s \nError: %s\n", DRM_IOCTL_RENDER_DEV_FILE_NAME, strerror(errno));
-			return -1;
-		}
-	}*/
-
-	refCounter++;
-
-	return 0;
+    pthread_mutex_lock(&controlMutex);
+    if (controlFd < 0) {
+        int fd = open(DRM_IOCTL_CTRL_DEV_FILE_NAME, O_RDWR | O_CLOEXEC);
+        if (fd < 0) {
+            pthread_mutex_unlock(&controlMutex);
+            return -1;
+        }
+        /* Identify the DRM driver, not a 32-bit-only /proc/cpuinfo field.
+         * No VC4-specific ioctl or modesetting is attempted on other GPUs. */
+        drmVersionPtr version = drmGetVersion(fd);
+        int supported = version && version->name_len == 3 &&
+                        version->name && !memcmp(version->name, "vc4", 3);
+        if (version) drmFreeVersion(version);
+        if (!supported) {
+            close(fd);
+            pthread_mutex_unlock(&controlMutex);
+            return -1;
+        }
+        controlFd = fd;
+    }
+    ++refCounter;
+    pthread_mutex_unlock(&controlMutex);
+    return 0;
 }
 
-void closeIoctl(int fd)
+void closeIoctl(void)
 {
-	if (--refCounter == 0)
-	{
-		close(fd);
-	}
+    pthread_mutex_lock(&controlMutex);
+    if (refCounter && --refCounter == 0) {
+        close(controlFd);
+        controlFd = -1;
+    }
+    pthread_mutex_unlock(&controlMutex);
 }
 
 static uint32_t align(uint32_t num, uint32_t alignment)
@@ -66,7 +70,7 @@ int vc4_get_chip_info(int fd,
 					  uint32_t* tileBufferSize,
 					  uint32_t* vriMemorySize)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(technologyVersion);
 	assert(IDstrUINT);
 	assert(vpmMemorySize);
@@ -147,7 +151,7 @@ int vc4_get_chip_info(int fd,
 
 int vc4_has_feature(int fd, uint32_t feature)
 {
-	assert(fd);
+	assert(fd >= 0);
 
 	struct drm_vc4_get_param p = {
 		.param = feature,
@@ -165,7 +169,7 @@ int vc4_has_feature(int fd, uint32_t feature)
 
 int vc4_test_tiling(int fd)
 {
-	assert(fd);
+	assert(fd >= 0);
 
 	/* Test if the kernel has GET_TILING; it will return -EINVAL if the
 	 * ioctl does not exist, but -ENOENT if we pass an impossible handle.
@@ -185,7 +189,7 @@ int vc4_test_tiling(int fd)
 
 uint64_t vc4_bo_get_tiling(int fd, uint32_t bo, uint64_t mod)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(bo);
 
 	struct drm_vc4_get_tiling get_tiling = {
@@ -208,7 +212,7 @@ uint64_t vc4_bo_get_tiling(int fd, uint32_t bo, uint64_t mod)
 
 int vc4_bo_set_tiling(int fd, uint32_t bo, uint64_t mod)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(bo);
 
 	struct drm_vc4_set_tiling set_tiling = {
@@ -229,7 +233,7 @@ int vc4_bo_set_tiling(int fd, uint32_t bo, uint64_t mod)
 
 uint32_t vc4_set_madvise(int fd, uint32_t bo, uint32_t needed, int hasMadvise)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(bo);
 
 	//VC4_MADV_WILLNEED			0
@@ -254,7 +258,7 @@ uint32_t vc4_set_madvise(int fd, uint32_t bo, uint32_t needed, int hasMadvise)
 
 void* vc4_bo_map_unsynchronized(int fd, uint32_t bo, uint32_t offset, uint32_t size)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(bo);
 	assert(size);
 
@@ -282,7 +286,7 @@ void* vc4_bo_map_unsynchronized(int fd, uint32_t bo, uint32_t offset, uint32_t s
 
 void vc4_bo_unmap_unsynchronized(int fd, void* ptr, uint32_t size)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(ptr);
 	assert(size);
 
@@ -291,7 +295,7 @@ void vc4_bo_unmap_unsynchronized(int fd, void* ptr, uint32_t size)
 
 int vc4_bo_wait(int fd, uint32_t bo, uint64_t timeout_ns)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(bo);
 
 	struct drm_vc4_wait_bo wait = {
@@ -316,7 +320,7 @@ int vc4_bo_wait(int fd, uint32_t bo, uint64_t timeout_ns)
 
 int vc4_seqno_wait(int fd, uint64_t* lastFinishedSeqno, uint64_t seqno, uint64_t* timeout_ns)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(lastFinishedSeqno);
 	assert(timeout_ns);
 
@@ -357,7 +361,7 @@ int vc4_seqno_wait(int fd, uint64_t* lastFinishedSeqno, uint64_t seqno, uint64_t
 
 int vc4_bo_flink(int fd, uint32_t bo, uint32_t *name)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(bo);
 	assert(name);
 
@@ -384,7 +388,7 @@ uint32_t getBOAlignedSize(uint32_t size, uint32_t alignment)
 
 uint32_t vc4_bo_alloc_shader(int fd, const void *data, uint32_t* size)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(data);
 	assert(size);
 
@@ -414,7 +418,7 @@ uint32_t vc4_bo_alloc_shader(int fd, const void *data, uint32_t* size)
 
 uint32_t vc4_bo_open_name(int fd, uint32_t name)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(name);
 
 	struct drm_gem_open o = {
@@ -432,7 +436,7 @@ uint32_t vc4_bo_open_name(int fd, uint32_t name)
 
 uint32_t vc4_bo_alloc(int fd, uint32_t size, const char *name)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(size);
 
 	struct drm_vc4_create_bo create;
@@ -462,7 +466,7 @@ uint32_t vc4_bo_alloc(int fd, uint32_t size, const char *name)
 
 void vc4_bo_free(int fd, uint32_t bo, void* mappedAddr, uint32_t size)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(bo);
 	assert(size);
 
@@ -483,7 +487,7 @@ void vc4_bo_free(int fd, uint32_t bo, void* mappedAddr, uint32_t size)
 void vc4_bo_label(int fd, uint32_t bo, const char* name)
 {
 #ifdef DEBUG_BUILD
-	assert(fd);
+	assert(fd >= 0);
 	assert(bo);
 
 	const char* str = name;
@@ -505,7 +509,7 @@ void vc4_bo_label(int fd, uint32_t bo, const char* name)
 
 int vc4_bo_get_dmabuf(int fd, uint32_t bo)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(bo);
 
 	int boFd;
@@ -522,7 +526,7 @@ int vc4_bo_get_dmabuf(int fd, uint32_t bo)
 
 void* vc4_bo_map(int fd, uint32_t bo, uint32_t offset, uint32_t size)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(bo);
 	assert(size);
 
@@ -540,7 +544,7 @@ void* vc4_bo_map(int fd, uint32_t bo, uint32_t offset, uint32_t size)
 
 void vc4_cl_submit(int fd, struct drm_vc4_submit_cl* submit, uint64_t* lastEmittedSeqno, uint64_t* lastFinishedSeqno)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(submit);
 	assert(lastEmittedSeqno);
 	assert(lastFinishedSeqno);
@@ -572,7 +576,7 @@ void vc4_cl_submit(int fd, struct drm_vc4_submit_cl* submit, uint64_t* lastEmitt
 
 uint32_t vc4_create_perfmon(int fd, uint32_t* counters, uint32_t num_counters)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(counters);
 	assert(num_counters > 0);
 	assert(num_counters <= DRM_VC4_MAX_PERF_COUNTERS);
@@ -607,7 +611,7 @@ uint32_t vc4_create_perfmon(int fd, uint32_t* counters, uint32_t num_counters)
 
 void vc4_destroy_perfmon(int fd, uint32_t id)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(id);
 
 	struct drm_vc4_perfmon_destroy arg =
@@ -633,14 +637,14 @@ void vc4_destroy_perfmon(int fd, uint32_t id)
  */
 void vc4_perfmon_get_values(int fd, uint32_t id, void* ptr)
 {
-	assert(fd);
+	assert(fd >= 0);
 	assert(id);
 	assert(ptr);
 
 	struct drm_vc4_perfmon_get_values arg =
 	{
 		.id = id,
-		.values_ptr = ptr
+		.values_ptr = (uintptr_t)ptr
 	};
 
 	if (drmIoctl(fd, DRM_IOCTL_VC4_PERFMON_GET_VALUES, &arg))
@@ -652,14 +656,14 @@ void vc4_perfmon_get_values(int fd, uint32_t id, void* ptr)
 
 void vc4_print_hang_state(int fd)
 {
-	assert(fd);
+	assert(fd >= 0);
 
 	struct drm_vc4_get_hang_state_bo bo_states[128];
 
 	struct drm_vc4_get_hang_state arg =
 	{
 		/** Pointer to array of struct drm_vc4_get_hang_state_bo. */
-		.bo = bo_states,
+		.bo = (uintptr_t)bo_states,
 		/**
 		 * On input, the size of the bo array.  Output is the number
 		 * of bos to be returned.
@@ -679,7 +683,7 @@ void vc4_print_hang_state(int fd)
 		fprintf(stderr, "GPU hang state\n");
 		for(uint32_t c = 0; c < arg.bo_count; ++c)
 		{
-			struct drm_vc4_get_hang_state_bo* bos = arg.bo;
+			struct drm_vc4_get_hang_state_bo* bos = (void *)(uintptr_t)arg.bo;
 			fprintf(stderr, "BO: %u, Addr: %u, Size: %u\n", bos[c].handle, bos[c].paddr, bos[c].size);
 		}
 

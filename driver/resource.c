@@ -506,7 +506,7 @@ VKAPI_ATTR void VKAPI_CALL RPIFUNC(vkGetImageMemoryRequirements2)(
 	assert(device);
 	assert(pInfo);
 	assert(pMemoryRequirements);
-	RPIFUNC(vkGetImageMemoryRequirements)(device, pInfo->image, pMemoryRequirements);
+	RPIFUNC(vkGetImageMemoryRequirements)(device, pInfo->image, &pMemoryRequirements->memoryRequirements);
 
 	PROFILEEND(RPIFUNC(vkGetImageMemoryRequirements2));
 }

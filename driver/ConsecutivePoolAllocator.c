@@ -1,288 +1,117 @@
 #include "ConsecutivePoolAllocator.h"
-
-#include "CustomAssert.h"
-
+#include "PoolLink.h"
 #include <stdint.h>
 #include <string.h>
 
-ConsecutivePoolAllocator createConsecutivePoolAllocator(void* b, unsigned bs, unsigned s)
+ConsecutivePoolAllocator createConsecutivePoolAllocator(void *b, unsigned bs, unsigned s)
 {
-	assert(b); //only allocated memory
-	assert(bs >= sizeof(void*)); //we need to be able to store
-	assert(s%bs==0); //we want a size that is the exact multiple of block size
-	assert(s >= bs); //at least 1 element
-
-	ConsecutivePoolAllocator pa =
-	{
-		.buf = b,
-		.nextFreeBlock = b,
-		.blockSize = bs,
-		.size = s,
-		.numFreeBlocks = s / bs
-	};
-
-	//initialize linked list of free pointers
-	uint32_t* ptr = pa.nextFreeBlock;
-	unsigned last = s/bs - 1;
-	for(unsigned c = 0; c < last; ++c)
-	{
-		*ptr = (char*)ptr + bs;
-		ptr = (char*)ptr + bs;
-	}
-
-	*ptr = 0; //last element
-
-	return pa;
+    if (!b || bs < sizeof(void *) || s < bs || s % bs)
+        return (ConsecutivePoolAllocator){0};
+    ConsecutivePoolAllocator pa = {b, b, bs, s, s / bs};
+    for (unsigned offset = 0; offset < s; offset += bs)
+        poolSetNext((char *)b + offset,
+                    offset + bs < s ? (char *)b + offset + bs : NULL);
+    return pa;
 }
 
-void destroyConsecutivePoolAllocator(ConsecutivePoolAllocator* pa)
+void destroyConsecutivePoolAllocator(ConsecutivePoolAllocator *pa)
 {
-	//actual memory freeing is done by caller
-	pa->buf = 0;
-	pa->nextFreeBlock = 0;
-	pa->blockSize = 0;
-	pa->size = 0;
+    *pa = (ConsecutivePoolAllocator){0};
 }
 
-//allocate numBlocks consecutive memory
-//return an offset into the pool buffer, as pool could be reallocated!
-uint32_t consecutivePoolAllocate(ConsecutivePoolAllocator* pa, uint32_t numBlocks)
+/* Links stay sorted by address so freed runs can coalesce in either order.
+ * Returned offsets remain 32-bit: the pool's size already has that limit. */
+uint32_t consecutivePoolAllocate(ConsecutivePoolAllocator *pa, uint32_t count)
 {
-	assert(pa);
-	assert(pa->buf);
-	assert(numBlocks);
-
-	uint32_t* ptr = pa->nextFreeBlock;
-
-	if(!ptr)
-	{
-		return -1; //no free blocks
-	}
-
-	for(; ptr; ptr = *ptr)
-	{
-		uint32_t found = 1;
-		char* nextBlock = (char*)ptr + pa->blockSize;
-		uint32_t* nextFree = *ptr;
-		for(uint32_t c = 1; c != numBlocks; ++c)
-		{
-			if(nextBlock == nextFree)
-			{
-				nextFree = *nextFree;
-				nextBlock += pa->blockSize;
-			}
-			else
-			{
-				found = 0;
-				break;
-			}
-		}
-
-		if(found)
-		{
-			//set the next free block to the one that the last block we allocated points to
-			uint32_t* nextFreeBlockCandidate = *(uint32_t*)((char*)ptr + (numBlocks - 1) * pa->blockSize);
-
-			if(pa->nextFreeBlock == ptr)
-			{
-				pa->nextFreeBlock = nextFreeBlockCandidate;
-				break;
-			}
-
-			uint32_t* prevPtr = pa->nextFreeBlock;
-			uint32_t* currPtr = prevPtr;
-			for(; currPtr; currPtr = *currPtr)
-			{
-				if(currPtr == ptr)
-				{
-					break;
-				}
-
-				prevPtr = currPtr;
-			}
-
-			assert(currPtr);
-
-			*prevPtr = nextFreeBlockCandidate;
-
-			break;
-		}
-
-		if(!(*ptr))
-		{
-			return -1;
-		}
-	}
-
-#ifdef DEBUG_BUILD
-	if(ptr) memset(ptr, 0, numBlocks * pa->blockSize);
-#endif
-
-	pa->numFreeBlocks -= numBlocks;
-
-	return (char*)ptr - (char*)pa->buf;
+    if (!count || count > pa->numFreeBlocks)
+        return UINT32_MAX;
+    void *prev = NULL;
+    for (char *start = pa->nextFreeBlock; start; start = poolNext(start)) {
+        char *last = start;
+        uint32_t found = 1;
+        while (found < count && poolNext(last) == last + pa->blockSize) {
+            last += pa->blockSize;
+            ++found;
+        }
+        if (found == count) {
+            void *next = poolNext(last);
+            if (prev) poolSetNext(prev, next);
+            else pa->nextFreeBlock = next;
+            pa->numFreeBlocks -= count;
+            return (uint32_t)(start - (char *)pa->buf);
+        }
+        prev = start;
+    }
+    return UINT32_MAX;
 }
 
-//free numBlocks consecutive memory
-void consecutivePoolFree(ConsecutivePoolAllocator* pa, void* p, uint32_t numBlocks)
+void consecutivePoolFree(ConsecutivePoolAllocator *pa, void *p, uint32_t count)
 {
-	assert(pa);
-	assert(pa->buf);
-	assert(p);
-	assert(numBlocks);
-
-#ifdef DEBUG_BUILD
-	memset(p, 0, numBlocks * pa->blockSize);
-#endif
-
-	//if linked list of free entries is empty
-	if(!pa->nextFreeBlock)
-	{
-		//then restart linked list
-		pa->nextFreeBlock = p;
-		char* listPtr = pa->nextFreeBlock;
-		for(uint32_t c = 0; c < numBlocks - 1; ++c)
-		{
-			*(uint32_t*)listPtr = listPtr + pa->blockSize;
-			listPtr += pa->blockSize;
-		}
-
-		//end list
-		*(uint32_t*)listPtr = 0;
-	}
-	else
-	{
-		//if list is not empty, try to form consecutive parts
-
-		//search free list to see if the freed element fits anywhere
-		uint32_t found = 0;
-		for(uint32_t* listPtr = pa->nextFreeBlock; listPtr; listPtr = *listPtr)
-		{
-			//if the freed block fits in the list somewhere
-			if(((char*)listPtr + pa->blockSize) == p)
-			{
-				//add it into the list
-				uint32_t* tmp = *listPtr;
-				*listPtr = p;
-
-				//reconstruct linked list within the freed element
-				char* ptr = *listPtr;
-				for(uint32_t c = 0; c < numBlocks - 1; ++c)
-				{
-					*(uint32_t*)ptr = ptr + pa->blockSize;
-					ptr += pa->blockSize;
-				}
-
-				//set the last element to point to the one after
-				*(uint32_t*)ptr = tmp;
-
-				found = 1;
-			}
-		}
-
-		if(!found)
-		{
-			//if it doesn't fit anywhere, just simply add it to the linked list
-			uint32_t* tmp = pa->nextFreeBlock;
-
-			pa->nextFreeBlock = p;
-			char* listPtr = pa->nextFreeBlock;
-			for(uint32_t c = 0; c < numBlocks - 1; ++c)
-			{
-				*(uint32_t*)listPtr = listPtr + pa->blockSize;
-				listPtr += pa->blockSize;
-			}
-
-			//set the last element to point to the one after
-			*(uint32_t*)listPtr = tmp;
-		}
-	}
-
-	pa->numFreeBlocks += numBlocks;
+    if (!count) return;
+    void *prev = NULL;
+    char *next = pa->nextFreeBlock;
+    while (next && next < (char *)p) {
+        prev = next;
+        next = poolNext(next);
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        char *block = (char *)p + i * pa->blockSize;
+        poolSetNext(block, i + 1 < count ? block + pa->blockSize : next);
+    }
+    if (prev) poolSetNext(prev, p);
+    else pa->nextFreeBlock = p;
+    pa->numFreeBlocks += count;
 }
 
-uint32_t consecutivePoolReAllocate(ConsecutivePoolAllocator* pa, void* currentMem, uint32_t currNumBlocks, uint32_t newNumBlocks)
+uint32_t consecutivePoolReAllocate(ConsecutivePoolAllocator *pa, void *mem,
+                                  uint32_t oldCount, uint32_t newCount)
 {
-	assert(pa);
-	assert(pa->buf);
-	assert(currentMem);
-	assert(currNumBlocks);
-
-	//TODO hack
-	if(newNumBlocks - currNumBlocks < 2)
-	{
-		uint32_t* nextCandidate = (char*)currentMem + pa->blockSize * currNumBlocks;
-		uint32_t* prevPtr = 0;
-		for(uint32_t* listPtr = pa->nextFreeBlock; listPtr; listPtr = *listPtr)
-		{
-			if(listPtr == nextCandidate)
-			{
-				//update next free block to be the one after our current candidate
-				if(prevPtr)
-				{
-					*prevPtr = *listPtr;
-					pa->nextFreeBlock = prevPtr;
-				}
-				else if(*listPtr)
-				{
-					pa->nextFreeBlock = *listPtr;
-				}
-
-				pa->numFreeBlocks -= 1;
-
-				return (char*)currentMem - (char*)pa->buf;
-			}
-
-			prevPtr = listPtr;
-		}
-	}
-
-	{
-		//try to allocate one more block
-		uint32_t newMemOffset = consecutivePoolAllocate(pa, newNumBlocks);
-
-		if(newMemOffset == -1)
-		{
-			return -1;
-		}
-
-		pa->numFreeBlocks -= newNumBlocks - currNumBlocks;
-
-		//copy over old content
-		memcpy(pa->buf + newMemOffset, currentMem, currNumBlocks * pa->blockSize);
-		//free current element
-		consecutivePoolFree(pa, currentMem, currNumBlocks);
-
-		return newMemOffset;
-	}
+    if (!mem || !oldCount) return UINT32_MAX;
+    uint32_t offset = (uint32_t)((char *)mem - (char *)pa->buf);
+    if (newCount <= oldCount) {
+        consecutivePoolFree(pa, (char *)mem + newCount * pa->blockSize,
+                            oldCount - newCount);
+        return newCount ? offset : UINT32_MAX;
+    }
+    uint32_t extra = newCount - oldCount;
+    if (extra > pa->numFreeBlocks) return UINT32_MAX;
+    char *end = (char *)mem + oldCount * pa->blockSize;
+    void *prev = NULL;
+    char *next = pa->nextFreeBlock;
+    while (next && next < end) {
+        prev = next;
+        next = poolNext(next);
+    }
+    if (next == end) {
+        char *last = next;
+        uint32_t found = 1;
+        while (found < extra && poolNext(last) == last + pa->blockSize) {
+            last += pa->blockSize;
+            ++found;
+        }
+        if (found == extra) {
+            if (prev) poolSetNext(prev, poolNext(last));
+            else pa->nextFreeBlock = poolNext(last);
+            pa->numFreeBlocks -= extra;
+            return offset;
+        }
+    }
+    uint32_t replacement = consecutivePoolAllocate(pa, newCount);
+    if (replacement == UINT32_MAX) return UINT32_MAX;
+    memcpy((char *)pa->buf + replacement, mem, oldCount * pa->blockSize);
+    consecutivePoolFree(pa, mem, oldCount);
+    return replacement;
 }
 
-void* getCPAptrFromOffset(ConsecutivePoolAllocator* pa, uint32_t offset)
+void *getCPAptrFromOffset(ConsecutivePoolAllocator *pa, uint32_t offset)
 {
-	assert(pa);
-	assert(pa->buf);
-	assert(offset < pa->size);
-
-	return pa->buf + offset;
+    assert(pa && pa->buf && offset < pa->size);
+    return (char *)pa->buf + offset;
 }
 
-void CPAdebugPrint(ConsecutivePoolAllocator* pa)
+void CPAdebugPrint(ConsecutivePoolAllocator *pa)
 {
-	fprintf(stderr, "\nCPA Debug Print\n");
-	fprintf(stderr, "pa->buf %p\n", pa->buf);
-	fprintf(stderr, "pa->nextFreeBlock %p\n", pa->nextFreeBlock);
-	fprintf(stderr, "pa->numFreeBlocks %u\n", pa->numFreeBlocks);
-
-	fprintf(stderr, "Linear walk:\n");
-	for(char* ptr = pa->buf; ptr != pa->buf + pa->size; ptr += pa->blockSize)
-	{
-		fprintf(stderr, "%p: %p, ", ptr, *(uint32_t*)ptr);
-	}
-
-	fprintf(stderr, "\nLinked List walk:\n");
-	for(uint32_t* ptr = pa->nextFreeBlock; ptr; ptr = *ptr)
-	{
-		fprintf(stderr, "%p: %p, ", ptr, *ptr);
-	}
-	fprintf(stderr, "\n");
+    fprintf(stderr, "CPA buffer=%p free=%u\n", pa->buf, pa->numFreeBlocks);
+    for (void *p = pa->nextFreeBlock; p; p = poolNext(p))
+        fprintf(stderr, "%p: %p\n", p, poolNext(p));
 }

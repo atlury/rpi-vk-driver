@@ -1,3 +1,4 @@
+#include <string.h>
 /*
  * Copyright (C) 2016 Intel Corporation
  *
@@ -212,6 +213,8 @@ __gen_unpack_f187(const uint8_t *restrict cl, uint32_t start, uint32_t end)
    assert(end - start == 15);
    uint32_t bits = __gen_unpack_uint(cl, start, end);
    bits = (bits << 16);
-   return *(float*)bits;
+   float value;
+   memcpy(&value, &bits, sizeof(value));
+   return value;
 }
 

@@ -1,3 +1,4 @@
+#include "PoolLink.h"
 #include "common.h"
 
 #include "kernel/vc4_packet.h"
@@ -564,10 +565,10 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkQueueSubmit)(
 				submitCl.height = height;
 				submitCl.flags |= marker->flags;
 
-				submitCl.bo_handles = getCPAptrFromOffset(cmdbuf->handlesCl.CPA, marker->handlesBufOffset + cmdbuf->handlesCl.offset);
-				submitCl.bin_cl = ((uint8_t*)marker) + sizeof(CLMarker);
-				submitCl.shader_rec = getCPAptrFromOffset(cmdbuf->shaderRecCl.CPA, marker->shaderRecBufOffset + cmdbuf->shaderRecCl.offset);
-				submitCl.uniforms = getCPAptrFromOffset(cmdbuf->uniformsCl.CPA, marker->uniformsBufOffset + cmdbuf->uniformsCl.offset);
+				submitCl.bo_handles = (uintptr_t)getCPAptrFromOffset(cmdbuf->handlesCl.CPA, marker->handlesBufOffset + cmdbuf->handlesCl.offset);
+				submitCl.bin_cl = (uintptr_t)((uint8_t*)marker) + sizeof(CLMarker);
+				submitCl.shader_rec = (uintptr_t)getCPAptrFromOffset(cmdbuf->shaderRecCl.CPA, marker->shaderRecBufOffset + cmdbuf->shaderRecCl.offset);
+				submitCl.uniforms = (uintptr_t)getCPAptrFromOffset(cmdbuf->uniformsCl.CPA, marker->uniformsBufOffset + cmdbuf->uniformsCl.offset);
 
 				if(marker->perfmonID)
 				{
@@ -875,7 +876,7 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkResetCommandPool)(
 		{
 			if(c == d) break;
 
-			d = *(uint32_t*)d;
+			d = poolNext(d);
 		}
 
 		if(c == d) //block is free, as we found it in the free chain
@@ -885,7 +886,7 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkResetCommandPool)(
 		else
 		{
 			//we found a valid block
-			_commandBuffer* cb = c;
+			_commandBuffer* cb = (_commandBuffer *)c;
 			assert(cb->state != CMDBUF_STATE_PENDING);
 			cb->state = CMDBUF_STATE_INITIAL;
 		}

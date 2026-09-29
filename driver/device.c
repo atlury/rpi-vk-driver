@@ -271,8 +271,8 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkCreateDevice)(
 	}
 
 	//check for enabled features
-	VkBool32* requestedFeatures = pCreateInfo->pEnabledFeatures;
-	VkBool32* supportedFeatures = &_features;
+	const VkBool32* requestedFeatures = (const VkBool32 *)pCreateInfo->pEnabledFeatures;
+	const VkBool32* supportedFeatures = (const VkBool32 *)&_features;
 
 	if(requestedFeatures)
 	{
@@ -883,7 +883,13 @@ VKAPI_ATTR void VKAPI_CALL RPIFUNC(vkGetPhysicalDeviceQueueFamilyProperties2)(
 	PROFILESTART(RPIFUNC(vkGetPhysicalDeviceQueueFamilyProperties2));
 
 	assert(physicalDevice);
-	RPIFUNC(vkGetPhysicalDeviceQueueFamilyProperties)(physicalDevice, pQueueFamilyPropertyCount, pQueueFamilyProperties);
+	if (!pQueueFamilyProperties) {
+        RPIFUNC(vkGetPhysicalDeviceQueueFamilyProperties)(physicalDevice, pQueueFamilyPropertyCount, NULL);
+    } else if (*pQueueFamilyPropertyCount) {
+        /* This driver exposes exactly one queue family. Preserve sType/pNext. */
+        RPIFUNC(vkGetPhysicalDeviceQueueFamilyProperties)(physicalDevice, pQueueFamilyPropertyCount,
+                                                        &pQueueFamilyProperties[0].queueFamilyProperties);
+    }
 
 	PROFILEEND(RPIFUNC(vkGetPhysicalDeviceQueueFamilyProperties2));
 }

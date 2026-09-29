@@ -579,3 +579,5 @@ void modeset_debug_print(int fd)
 
 	drmModeFreeResources(resPtr);
 }
+
+modeset_saved_state modeset_saved_states[32];

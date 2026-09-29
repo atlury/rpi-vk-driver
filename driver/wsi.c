@@ -1,3 +1,4 @@
+#include "profiler.h"
 #include "common.h"
 #include "modeset.h"
 
@@ -36,7 +37,7 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkGetPhysicalDeviceDisplayPropertiesKHR)(
 
 	for(uint32_t c = 0; c < elementsWritten; ++c)
 	{
-		pProperties[c].display = displays[c].connectorID;
+		pProperties[c].display = (VkDisplayKHR)(uintptr_t)displays[c].connectorID;
 		//fprintf(stderr, "display id %i\n", pProperties[c].display );
 		char* name = (char*)malloc(32);
 		memcpy(name, displays[c].name, 32);
@@ -73,7 +74,7 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkGetDisplayModePropertiesKHR)(
 
 	uint32_t numModes;
 	modeset_display_mode modes[1024];
-	modeset_enum_modes_for_display(controlFd, display, &numModes, &modes);
+	modeset_enum_modes_for_display(controlFd, (uint32_t)(uintptr_t)display, &numModes, modes);
 
 	if(!pProperties)
 	{
@@ -124,7 +125,7 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkCreateDisplayPlaneSurfaceKHR)(
 	modeset_display_surface* surface = ALLOCATE(sizeof(modeset_display_surface), 1, VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE);
 	modeset_create_surface_for_mode(controlFd, mode.connectorID, mode.modeID, surface);
 
-	*pSurface = surface;
+	*pSurface = (VkSurfaceKHR)(uintptr_t)surface;
 
 	PROFILEEND(RPIFUNC(vkCreateDisplayPlaneSurfaceKHR));
 
@@ -148,7 +149,7 @@ VKAPI_ATTR void VKAPI_CALL RPIFUNC(vkDestroySurfaceKHR)(
 
 	if(surface)
 	{
-		modeset_destroy_surface(controlFd, surface);
+		modeset_destroy_surface(controlFd, (modeset_display_surface *)(uintptr_t)surface);
 	}
 
 	FREE(surface);
@@ -177,7 +178,7 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkGetPhysicalDeviceSurfaceCapabilitiesKHR
 	assert(surface);
 	assert(pSurfaceCapabilities);
 
-	modeset_display_surface* surf = surface;
+	modeset_display_surface* surf = (modeset_display_surface *)(uintptr_t)surface;
 
 	uint32_t width = surf->connector->modes[surf->modeID].hdisplay;
 	uint32_t height = surf->connector->modes[surf->modeID].vdisplay;
@@ -325,7 +326,7 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkCreateSwapchainKHR)(
 		return VK_ERROR_OUT_OF_HOST_MEMORY;
 	}
 
-	_swapchain* s = *pSwapchain;
+	_swapchain* s = (_swapchain *)(uintptr_t)*pSwapchain;
 
 	//TODO flags, layers, queue sharing, pretransform, composite alpha..., clipped, oldswapchain
 
@@ -401,7 +402,7 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkCreateSwapchainKHR)(
 
 		RPIFUNC(vkBindImageMemory)(device, &s->images[c], mem, 0);
 
-		modeset_create_fb_for_surface(controlFd, &s->images[c], pCreateInfo->surface); assert(s->images[c].fb);
+		modeset_create_fb_for_surface(controlFd, &s->images[c], (modeset_display_surface *)(uintptr_t)pCreateInfo->surface); assert(s->images[c].fb);
 	}
 
 	PROFILEEND(RPIFUNC(vkCreateSwapchainKHR));
@@ -429,7 +430,7 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkGetSwapchainImagesKHR)(
 	assert(swapchain);
 	assert(pSwapchainImageCount);
 
-	_swapchain* s = swapchain;
+	_swapchain* s = (_swapchain *)(uintptr_t)swapchain;
 
 	if(!pSwapchainImages)
 	{
@@ -477,8 +478,8 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkAcquireNextImageKHR)(
 
 	assert(semaphore != VK_NULL_HANDLE || fence != VK_NULL_HANDLE);
 
-	sem_t* sem = semaphore;
-	_swapchain* sc = swapchain;
+	sem_t* sem = (sem_t *)(uintptr_t)semaphore;
+	_swapchain* sc = (_swapchain *)(uintptr_t)swapchain;
 
 	//TODO we need to keep track of currently acquired images?
 
@@ -564,8 +565,8 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkQueuePresentKHR)(
 
 	for(uint32_t c = 0; c < pPresentInfo->swapchainCount; ++c)
 	{
-		_swapchain* s = pPresentInfo->pSwapchains[c];
-		modeset_present(controlFd, &s->images[pPresentInfo->pImageIndices[c]], s->surface, queue->lastEmitSeqno);
+		_swapchain* s = (_swapchain *)(uintptr_t)pPresentInfo->pSwapchains[c];
+		modeset_present(controlFd, &s->images[pPresentInfo->pImageIndices[c]], (modeset_display_surface *)(uintptr_t)s->surface, queue->lastEmitSeqno);
 		s->inFlight[pPresentInfo->pImageIndices[c]] = 1;
 	}
 
@@ -593,7 +594,7 @@ VKAPI_ATTR void VKAPI_CALL RPIFUNC(vkDestroySwapchainKHR)(
 
 	//TODO flush all ops
 
-	_swapchain* s = swapchain;
+	_swapchain* s = (_swapchain *)(uintptr_t)swapchain;
 
 	if(s)
 	{

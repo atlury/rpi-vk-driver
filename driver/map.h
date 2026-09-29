@@ -10,7 +10,7 @@ extern "C" {
 typedef struct
 {
 	void* data;
-	uint32_t key;
+	uintptr_t key;
 } mapElem;
 
 typedef struct
@@ -19,9 +19,9 @@ typedef struct
 	uint32_t maxData;
 } map;
 
-void* getMapElement(map m, uint32_t key);
-void setMapElement(map* m, uint32_t key, void* data);
-void deleteMapElement(map* m, uint32_t key);
+void* getMapElement(map m, uintptr_t key);
+void setMapElement(map* m, uintptr_t key, void* data);
+void deleteMapElement(map* m, uintptr_t key);
 map createMap(void* buf, uint32_t maxData);
 void destroyMap(map* m);
 

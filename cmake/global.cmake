@@ -1,4 +1,5 @@
 
+add_definitions(-D_GNU_SOURCE)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_EXTENSIONS OFF)
 
@@ -22,9 +23,12 @@ else()
     #add_compile_options(-Werror)
 endif()
 
+if(NOT USE_SYSTEM_VULKAN)
 link_directories(
     ${EXTERNAL_SYSROOT}/lib
     ${CMAKE_BINARY_DIR}/vulkan-loader-prefix/src/vulkan-loader-build/loader
 )
+
+endif()
 
 set(CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_PREFIX}/lib)

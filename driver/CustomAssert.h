@@ -11,7 +11,7 @@ enum { HAVE_TRAP_INSTRUCTION = 1, };
 __attribute__((gnu_inline, always_inline))
 __inline__ static void DEBUG_BREAK(void)
 {
-	__asm__ volatile(".inst 0xe7f001f0");
+	__builtin_trap();
 }
 
 #ifdef DEBUG_BUILD

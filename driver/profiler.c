@@ -38,7 +38,7 @@ void startMeasure(void* func, const char* funcName)
 		assert(globalProfiler);
 		assert(func);
 		assert(funcName);
-		funcData* data = getMapElement(globalProfiler->funcDatabase, func);
+		funcData* data = getMapElement(globalProfiler->funcDatabase, (uintptr_t)func);
 		if(!data)
 		{
 			data = malloc(sizeof(funcData));
@@ -49,7 +49,7 @@ void startMeasure(void* func, const char* funcName)
 			data->inProgress = 0;
 			data->start.tv_nsec = 0;
 			data->start.tv_sec = 0;
-			setMapElement(&globalProfiler->funcDatabase, func, data);
+			setMapElement(&globalProfiler->funcDatabase, (uintptr_t)func, data);
 		}
 
 		assert(!data->inProgress);
@@ -69,7 +69,7 @@ void endMeasure(void* func)
 		assert(globalProfiler);
 		assert(func);
 
-		funcData* data = getMapElement(globalProfiler->funcDatabase, func);
+		funcData* data = getMapElement(globalProfiler->funcDatabase, (uintptr_t)func);
 		assert(data);
 		assert(data->inProgress);
 		data->inProgress = 0;
@@ -105,7 +105,7 @@ double getTimeSpent(void* func)
 	assert(globalProfiler);
 	assert(func);
 
-	funcData* data = getMapElement(globalProfiler->funcDatabase, func);
+	funcData* data = getMapElement(globalProfiler->funcDatabase, (uintptr_t)func);
 	if(!data)
 	{
 		return 0;

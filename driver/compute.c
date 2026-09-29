@@ -14,7 +14,8 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkCreateComputePipelines)(
 	VkPipeline*                                 pPipelines)
 {
 	UNSUPPORTED(vkCreateComputePipelines);
-	return UNSUPPORTED_RETURN;
+	for (uint32_t i = 0; i < createInfoCount; ++i) pPipelines[i] = VK_NULL_HANDLE;
+    return VK_ERROR_FEATURE_NOT_PRESENT;
 }
 
 VKAPI_ATTR void VKAPI_CALL RPIFUNC(vkCmdDispatchIndirect)(

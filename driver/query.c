@@ -199,7 +199,7 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkGetQueryPoolResults)(
 		uint32_t counter = 0;
 		for(uint32_t d = 0; d < dataSize; d += stride, ++counter)
 		{
-			VkPerformanceCounterResultKHR* result = ((char*)pData) + d;
+			VkPerformanceCounterResultKHR* result = (VkPerformanceCounterResultKHR *)(((char*)pData) + d);
 			result->uint64 = qp->queryPool[c].counterValues[counter / DRM_VC4_MAX_PERF_COUNTERS][counter % DRM_VC4_MAX_PERF_COUNTERS];
 		}
 	}

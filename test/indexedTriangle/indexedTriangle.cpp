@@ -1059,13 +1059,7 @@ void CreateShaders()
 		assemble_qpu_asm(fs_asm_code, asm_ptrs[2]);
 	}
 
-	spirv[0] = 0x07230203;
-	spirv[1] = 0x00010000;
-	spirv[2] = 0x14E45250;
-	spirv[3] = 1;
-	spirv[4] = (uint32_t)&shaderModuleCreateInfo;
-	//words start here
-	spirv[5] = 1 << 16;
+	vkRpiEncodeAssemblyEXT(spirv, &shaderModuleCreateInfo);
 
 	VkShaderModuleCreateInfo smci = {};
 	smci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;

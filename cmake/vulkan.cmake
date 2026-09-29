@@ -1,3 +1,12 @@
+option(USE_SYSTEM_VULKAN "Use installed Vulkan headers/loader without downloading or installing a loader" OFF)
+if(USE_SYSTEM_VULKAN)
+    find_package(Vulkan REQUIRED)
+    include_directories(${Vulkan_INCLUDE_DIRS})
+    add_custom_target(vulkan-headers)
+    add_custom_target(vulkan-loader)
+    return()
+endif()
+
 
 include(ExternalProject)
 

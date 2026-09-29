@@ -15,9 +15,9 @@ static uint32_t loaderVersion = -1;
 VKAPI_ATTR VkResult VKAPI_CALL vk_icdNegotiateLoaderICDInterfaceVersion(uint32_t* pSupportedVersion)
 {
 	assert(pSupportedVersion);
-	loaderVersion = *pSupportedVersion;
-
-	*pSupportedVersion = 4; //we support v4
+	if (!pSupportedVersion) return VK_ERROR_INITIALIZATION_FAILED;
+    if (*pSupportedVersion > 4) *pSupportedVersion = 4;
+    loaderVersion = *pSupportedVersion;
 
 	return VK_SUCCESS;
 }
@@ -114,6 +114,15 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkCreateInstance)(
 	assert(pInstance);
 	assert(pCreateInfo);
 
+    if (!pCreateInfo || !pInstance) return VK_ERROR_INITIALIZATION_FAILED;
+    *pInstance = VK_NULL_HANDLE;
+    if (pCreateInfo->pApplicationInfo &&
+        VK_VERSION_MAJOR(pCreateInfo->pApplicationInfo->apiVersion) > 1)
+        return VK_ERROR_INCOMPATIBLE_DRIVER;
+    if (pCreateInfo->pApplicationInfo &&
+        VK_VERSION_MINOR(pCreateInfo->pApplicationInfo->apiVersion) > 1)
+        return VK_ERROR_INCOMPATIBLE_DRIVER;
+
 	*pInstance = ALLOCATE(sizeof(_instance), 1, VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE);
 
 	if(!*pInstance)
@@ -148,43 +157,6 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkCreateInstance)(
 		}
 	}
 
-	//TODO ignored for now
-	//pCreateInfo->pApplicationInfo
-
-	{ //Simple check to make sure we only support RPi 0, 1, 2, 3
-		FILE* f = fopen("/proc/cpuinfo", "r");
-
-		if(!f)
-		{
-			PROFILEEND(RPIFUNC(vkCreateInstance));
-			return VK_ERROR_INITIALIZATION_FAILED;
-		}
-
-		char* str = malloc(4096);
-		int n = fread(str, 1, 4096, f);
-		fclose(f);
-		str[n] = '\0';
-
-		char* hw = strstr(str, "Hardware");
-		hw = strstr(hw, "BCM");
-
-		hw[7] = '\0';
-
-		if(strcmp(hw, "BCM2835") &&
-		   strcmp(hw, "BCM2836") &&
-		   strcmp(hw, "BCM2837"))
-		{
-			PROFILEEND(RPIFUNC(vkCreateInstance));
-			return VK_ERROR_INITIALIZATION_FAILED;
-		}
-
-		free(str);
-	}
-
-
-	//we assume we are on the RPi and the GPU exists...
-	int gpuExists = access( "/dev/dri/card0", F_OK ) != -1; assert(gpuExists);
-
 	(*pInstance)->dev.path = "/dev/dri/card0";
 	(*pInstance)->dev.instance = *pInstance;
 
@@ -192,9 +164,12 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkCreateInstance)(
 
 	int ret = openIoctl();
 	if(ret == -1)
-	{
-		return VK_ERROR_INITIALIZATION_FAILED;
-	}
+    {
+        FREE(*pInstance);
+        *pInstance = VK_NULL_HANDLE;
+        PROFILEEND(RPIFUNC(vkCreateInstance));
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
 
 	ret = vc4_get_chip_info(controlFd,
 					  &(*pInstance)->technologyVersion,
@@ -210,9 +185,13 @@ VKAPI_ATTR VkResult VKAPI_CALL RPIFUNC(vkCreateInstance)(
 					  &(*pInstance)->tileBufferSize,
 					  &(*pInstance)->vriMemorySize);
 	if(!ret)
-	{
-		return VK_ERROR_INITIALIZATION_FAILED;
-	}
+    {
+        closeIoctl();
+        FREE(*pInstance);
+        *pInstance = VK_NULL_HANDLE;
+        PROFILEEND(RPIFUNC(vkCreateInstance));
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
 
 	(*pInstance)->hasTiling = vc4_test_tiling(controlFd);
 

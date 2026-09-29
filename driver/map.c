@@ -1,65 +1,62 @@
 #include "map.h"
 
-uint32_t getIndex(uint32_t key, uint32_t maxData)
+static uint32_t getIndex(uintptr_t key, uint32_t capacity)
 {
-	//multiplicative hash
-	//with power of 2 W
-	uint32_t a = 0x678DDE6F;
-	return ((a * key) >> (32 - maxData)) % maxData;
+    /* Unsigned multiplication is defined on both 32- and 64-bit hosts. */
+    return (uint32_t)((key * (uintptr_t)0x678DDE6F) % capacity);
 }
 
-void* getMapElement(map m, uint32_t key)
+void *getMapElement(map m, uintptr_t key)
 {
-	assert(m.maxData > 0);
-	assert(m.elements);
-	uint32_t index = getIndex(key, m.maxData);
-	//linear open addressing
-	while(m.elements[index].key != key && m.elements[index].data != 0){index = (index + 1) % m.maxData;}
-	return m.elements[index].data;
+    if (!m.elements || !m.maxData) return NULL;
+    uint32_t index = getIndex(key, m.maxData);
+    for (uint32_t i = 0; i < m.maxData; ++i, index = (index + 1) % m.maxData) {
+        if (!m.elements[index].data) return NULL;
+        if (m.elements[index].key == key) return m.elements[index].data;
+    }
+    return NULL;
 }
 
-void setMapElement(map* m, uint32_t key, void* data)
+void setMapElement(map *m, uintptr_t key, void *data)
 {
-	assert(m);
-	assert(m->elements);
-	assert(m->maxData > 0);
-	uint32_t index = getIndex(key, m->maxData);
-	while(m->elements[index].key != key && m->elements[index].data != 0){index = (index + 1) % m->maxData;}
-	m->elements[index].data = data;
-	m->elements[index].key = key;
+    if (!m->elements || !m->maxData) return;
+    if (!data) { deleteMapElement(m, key); return; }
+    uint32_t index = getIndex(key, m->maxData);
+    for (uint32_t i = 0; i < m->maxData; ++i, index = (index + 1) % m->maxData) {
+        if (!m->elements[index].data || m->elements[index].key == key) {
+            m->elements[index].key = key;
+            m->elements[index].data = data;
+            return;
+        }
+    }
 }
 
-void deleteMapElement(map* m, uint32_t key)
+void deleteMapElement(map *m, uintptr_t key)
 {
-	assert(m);
-	assert(m->elements);
-	assert(m->maxData > 0);
-	uint32_t index = getIndex(key, m->maxData);
-	while(m->elements[index].key != key){++index;}
-	m->elements[index].data = 0;
+    if (!m->elements || !m->maxData) return;
+    uint32_t index = getIndex(key, m->maxData);
+    for (uint32_t i = 0; i < m->maxData; ++i, index = (index + 1) % m->maxData) {
+        if (!m->elements[index].data) return;
+        if (m->elements[index].key != key) continue;
+        m->elements[index].data = NULL;
+        /* Reinsert the following cluster so a deleted collision does not
+         * hide a later key. Bound the walk even when the table was full. */
+        index = (index + 1) % m->maxData;
+        for (uint32_t j = 0; j + 1 < m->maxData && m->elements[index].data; ++j) {
+            mapElem entry = m->elements[index];
+            m->elements[index].data = NULL;
+            setMapElement(m, entry.key, entry.data);
+            index = (index + 1) % m->maxData;
+        }
+        return;
+    }
 }
 
-map createMap(void* buf, uint32_t maxData)
+map createMap(void *buf, uint32_t capacity)
 {
-	map m =
-	{
-		.elements = buf,
-		.maxData = maxData
-	};
-
-	//lazy hashing
-	//0 means bucket is empty
-	for(uint32_t c = 0; c < m.maxData; ++c)
-	{
-		m.elements[c].data = 0;
-	}
-
-	return m;
+    map m = {buf, buf ? capacity : 0};
+    for (uint32_t i = 0; i < m.maxData; ++i) m.elements[i] = (mapElem){0};
+    return m;
 }
 
-void destroyMap(map* m)
-{
-	//actual memory freeing is done by caller
-	m->elements = 0;
-	m->maxData = 0;
-}
+void destroyMap(map *m) { *m = (map){0}; }

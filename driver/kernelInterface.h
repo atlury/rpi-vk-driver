@@ -37,8 +37,8 @@ extern "C" {
 extern int controlFd;
 //extern int renderFd;
 
-int openIoctl();
-void closeIoctl();
+int openIoctl(void);
+void closeIoctl(void);
 
 int vc4_get_chip_info(int fd,
 					  uint32_t* technologyVersion,
